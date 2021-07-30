@@ -1,0 +1,211 @@
+Description: The template deploys 2 private subnet
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.199.0.0/16
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first AZ
+    Type: String
+    Default: 10.199.1.0/24
+
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second AZ
+    Type: String
+    Default: 10.199.2.0/24
+
+  PublicSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first AZ
+    Type: String
+    Default: 10.199.0.0/24
+
+  PublicRouteDestinationCidrBlock:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first AZ
+    Type: String
+    Default: 0.0.0.0/0
+
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      Tags:
+        - Key: Name
+          Value: rds-d974187-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: RDS-IGW-VPC
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  myDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS Database private subnet
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rds-d974187-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1b
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rds-d974187-private-subnet-2
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rds-d974187-private-rt
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rds-d974187-public-rt
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: !Ref PublicRouteDestinationCidrBlock
+      GatewayId: !Ref InternetGateway
+
+  publicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      CidrBlock: !Ref PublicSubnetCIDR
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: rds-d974187-public-subnet
+
+  RDSDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS DB Instance
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 10.199.0.0/16
+          FromPort: 3306
+          ToPort: 3306
+      Tags:
+        - Key: Name
+          Value: rds-d974187-vpc-sg
+
+  MyRDSDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: myrds
+      DBName: employee
+      DBInstanceClass: db.t2.micro
+      AllocatedStorage: 20
+      Engine: MySQL
+      EngineVersion: 5.7.26
+      MasterUsername: admin
+      MasterUserPassword: password
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref myDBSubnetGroup
+      AvailabilityZone: ap-south-1a
+      VPCSecurityGroups:
+        - !Ref RDSDBSecurityGroup
+      Port: 3306
+
+
+  EC2BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group for ec2 bastion host
+      GroupName: ec2-bastion-sg-for-rds
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: ec2-bastion-sg
+
+  EC2BastionHostToAccessRDS:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-00bf4ae5a7909786c
+      InstanceType: t2.micro
+      KeyName: d974187
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: !Ref PublicSubnet
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref EC2BastionSecurityGroup
+      Tags:
+        - Key: Name
+          Value: Ec2-Bastion-Host
+
+
+Outputs:
+
+  VpcId:
+    Description: "vpc id of the VPC"
+    Value:
+      Ref: "VPC"
+    Export:
+      Name: !Sub "${AWS::Region}-${AWS::StackName}-VPC"
+
+
